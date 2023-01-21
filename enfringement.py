@@ -79,7 +79,7 @@ def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
                     try: return key.fileobj.getpeername() # returns an ip address/port
                     except OSError as e: sel.unregister(key.fileobj)
 
-        # favor ipv6 by trying to connect vi ipv6 slightly before ipv4
+        # favor ipv6 by trying to connect via ipv6 slightly before ipv4
         if len(ip6): caddr = wait_connection(ip6, ip6_advantage)
         if caddr is None: caddr = wait_connection(ip4)
 
@@ -220,6 +220,48 @@ def putfirmware(*, session=None, base=None, url=None, infile=None, **kwargs):
         if kwargs['wait']: wait(url=url)
     else:
         raise ValueError('failed to flash?')
+
+
+@commands.register
+def gethwid(*, session=None, base=None, url=None, outfile=None, **kwargs):
+    # download config
+    eprint('downloading existing config')
+    config = io.BytesIO(getconfig(session=session, base=base, url=url, **kwargs))
+
+    ofile = io.StringIO()
+
+    with tarfile.open(None, 'r:gz', config) as itar:
+        ofile.write("# DON'T TOUCH THESE!\n")
+        for info in itar.getmembers():
+            if info.name == 'etc/config/sysProductInfo':
+                with itar.extractfile(info) as fh:
+                    for line in map(lambda x: x.decode().rstrip(), fh):
+                        m = re.fullmatch(r"\t+option\s+(\w+)\s+'?([^']*)'?", line)
+                        if m is not None:
+                            k, v = m.group(1), m.group(2)
+                            if k == 'HWID':              ofile.write(f"hwid = {v}\n")
+                            elif k == 'modelName':       ofile.write(f"modelname = {v}\n")
+                            elif k == 'firmwareVersion': ofile.write(f"fwver = {v}\n")
+            elif info.name == 'etc/config/network':
+                with itar.extractfile(info) as fh:
+                    for line in map(lambda x: x.decode().rstrip(), fh):
+                        m = re.fullmatch(r"\t+option\s+(\w+)\s+'?([^']*)'?", line)
+                        if m is not None:
+                            k, v = m.group(1), m.group(2)
+                            if k == 'macaddr':
+                                ofile.write(f"macaddr = {v}\n")
+                                break
+
+    ofile.write("\n# Can edit from here.")
+    ofile.flush()
+    ofile.seek(0)
+
+    if outfile:
+        outfile.write(ofile.getvalue().encode()+b'\n')
+    else:
+        print(ofile.getvalue())
+
+    return True
 
 
 @commands.register
