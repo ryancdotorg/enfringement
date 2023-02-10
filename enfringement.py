@@ -27,6 +27,10 @@ DRYRUN = True if os.environ.get('EAP_DRYRUN', False) else False
 # simply print an error message an return 0 when called
 DBTAR, DBBIN = 'dbmulti-armv7l.tar.xz', 'dbmulti-cli-scp'
 
+def getdocstr(fn):
+    import inspect
+    return inspect.getdoc(fn)
+
 class Registrar(dict):
     def register(self, *args, **kwargs):
         if len(args) == 1:
@@ -347,7 +351,53 @@ def jailbreak(*, session, base, url, dropbear=None, **kwargs):
 
 if __name__ == '__main__':
     from urllib3.util import parse_url
-    from argparse import ArgumentParser, ArgumentTypeError, FileType
+    from argparse import ArgumentParser, ArgumentTypeError, HelpFormatter, FileType
+
+    command_names = commands.keys()
+    command_help = f'command to perform {{{", ".join(command_names)}}}'
+
+    class Action:
+        def __init__(self, metavar=None, help=None):
+            self.metavar = metavar
+            self.help = help
+
+        def __getattr__(self, attr):
+            if attr[0] == '_':
+                msg = f"'{self.__class__.__name__}' object has no attribute '{attr}'"
+                raise AttributeError(msg)
+
+            return None
+
+        def __repr__(self):
+            params = f"(help={repr(self.help)}, metavar={repr(self.metavar)})"
+            return self.__class__.__name__ + params
+
+    class CustomFormatter(HelpFormatter):
+        def _indented(self, text):
+            return f'{" " * self._current_indent}{text}'
+
+        def _format_action(self, action, *args, **kwargs):
+            help_text = super()._format_action(action, *args, **kwargs)
+
+            try:
+                extra_text, extra_flag = '', False
+                if action.dest == 'command':
+                    self._dedent()
+                    extra_text += self._indented('available commands:\n')
+                    self._indent()
+
+                    for command in command_names:
+                        docstr = getdocstr(commands[command])
+                        if docstr is not None:
+                            extra_flag = True
+                            act = Action(command, docstr)
+                            extra_text += super()._format_action(act)
+
+                return help_text + (f'\n{extra_text}\n' if extra_flag else '')
+            except Exception as e:
+                eprint(e)
+
+            return help_text
 
     def URLType(a):
         return parse_url(a)
@@ -355,6 +405,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(
         usage='%(prog)s COMMAND [options]',
         description='Manage EnGenius EnSky WiFi Access Points.',
+        formatter_class=CustomFormatter,
     )
 
     parser.add_argument(
@@ -369,11 +420,12 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-u', '--username', dest='username', metavar='USER', default='admin',
-        help='login username (default: admin)',
+        help='login username (default: "admin")',
     )
     parser.add_argument(
-        '-p', '--password', dest='password', metavar='PASS', default='admin',
-        help='login password (default: admin)',
+        '-p', '--password', dest='password', metavar='PASS', default=None,
+        help='login password (default: `EAP_PASSWORD` environment variable if set, '+
+             'otherwise "admin")',
     )
     parser.add_argument(
         '-i', '--input', dest='infile', type=FileType('rb'), metavar='FILE',
@@ -385,7 +437,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '-a', '--url', dest='url', type=URLType, metavar='URL',
-        help='AP URL',
+        help='device IP address or URL',
     )
     parser.add_argument(
         '-W', '--wait', dest='wait', action='store_true',
@@ -397,7 +449,8 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    args.password = os.environ.get('EAP_PASSWORD', args.password)
+    if args.password is None:
+        args.password = os.environ.get('EAP_PASSWORD', 'admin')
     if args.verbose: VERBOSE = True
 
     # don't pass none values
@@ -410,6 +463,8 @@ if __name__ == '__main__':
     if 'url' in kwargs:
         url = f"{(kwargs['url'].scheme or 'http')}://{kwargs['url'].host}"
         kwargs['url'] = parse_url(url)
+    else:
+        kwargs['url'] = parse_url('http://192.168.0.1')
 
     # defaults
     if 'infile' not in kwargs and not stdout.isatty():
