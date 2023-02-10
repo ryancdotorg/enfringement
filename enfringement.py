@@ -27,6 +27,12 @@ DRYRUN = True if os.environ.get('EAP_DRYRUN', False) else False
 # simply print an error message an return 0 when called
 DBTAR, DBBIN = 'dbmulti-armv7l.tar.xz', 'dbmulti-cli-scp'
 
+HWID = {
+    'EWS355AP':   '0101008A',
+    'EAP1300':    '0101009D',
+    'EAP1300EXT': '0101009E',
+}
+
 def getdocstr(fn):
     import inspect
     return inspect.getdoc(fn)
@@ -163,6 +169,62 @@ def setcsrf(session, base):
 @commands.register
 def getstatus(*, session, base, url, outfile=None, **kwargs):
     '''get the device's network status'''
+
+    s = setcsrf(session, base)
+
+    r = s.get(f'{base}/admin/status/overview?status=1')
+
+    if outfile:
+        outfile.write(r.content)
+    else:
+        print(r.content.decode())
+
+    return r.content
+
+@commands.register
+def getmac(*, session, base, url, outfile=None, **kwargs):
+    '''get the device's model number and mac address'''
+
+    s = setcsrf(session, base)
+
+    r = s.get(f'{base}/admin/status/overview/')
+    html = r.content
+
+    # no, you cannot parse html with regular expressions, but this'll work...
+    pattern  = rb'<div\s+[^>]*\bclass="PIE"[^>]+>\s*'
+    pattern += rb'<div[^>]*>\s*([^<]+)\s*</div>\s*'
+    pattern += rb'<div[^>]*>\s*([^<]+)\s*</div>\s*'
+    pattern += rb'.+<td\s+[^>]*\bid="mac_lan"[^>]*>([0-9A-F:]+)</td>'
+    m = re.search(pattern, html, flags=re.MULTILINE|re.DOTALL)
+    if m is not None:
+        info = tuple(map(bytes.decode, m.groups()))
+        model = info[0]
+        desc = info[1]
+        mac = info[2]
+
+        ofile = io.StringIO()
+        ofile.write("# DON'T TOUCH THESE!\n")
+        if model in HWID:
+            ofile.write(f"hwid = {HWID[model]}\n")
+        ofile.write(f"modelname = {model}\n")
+        ofile.write(f"macaddr = {mac}\n")
+        m = re.search(rb'\s*var\s+firmwareVersion\s*=\s*["\']([0-9.]+)["\']', html)
+        if m is not None:
+            ofile.write(f"fwver = {m.group(1).decode()}\n")
+        ofile.write("\n# Can edit from here.")
+        ofile.flush()
+        ofile.seek(0)
+
+        if outfile:
+            outfile.write(ofile.getvalue().encode()+b'\n')
+        else:
+            print(ofile.getvalue())
+
+    return True
+
+@commands.register
+def getconfig(*, session, base, url, outfile=None, stream=False, **kwargs):
+    '''download the current config'''
 
     s = setcsrf(session, base)
 
