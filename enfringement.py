@@ -96,7 +96,7 @@ def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
     return (elapsed(), caddr)
 
 
-def wait(*, url=None, **kwargs):
+def wait(*, url, **kwargs):
     ping = lambda: tcp_ping(url.host, url.port if url.port is not None else url.scheme)
     failures = -1
 
@@ -115,7 +115,7 @@ def wait(*, url=None, **kwargs):
         elapsed, addr = ping()
         if addr: break
 
-def login(*, url=None, username='admin', password='admin', **kwargs):
+def login(*, url, username='admin', password='admin', **kwargs):
     s = requests.Session()
     s.headers.update({'User-Agent': uastr})
     s.verify = False
@@ -157,7 +157,9 @@ def setcsrf(session, base):
 
 
 @commands.register
-def getconfig(*, session=None, base=None, url=None, outfile=None, stream=False, **kwargs):
+def getstatus(*, session, base, url, outfile=None, **kwargs):
+    '''get the device's network status'''
+
     s = setcsrf(session, base)
 
     # download config
@@ -183,7 +185,9 @@ def getconfig(*, session=None, base=None, url=None, outfile=None, stream=False, 
 
 
 @commands.register
-def putconfig(*, session=None, base=None, url=None, infile=None, **kwargs):
+def putconfig(*, session, base, url, infile=None, **kwargs):
+    '''upload a config bundle'''
+
     s = setcsrf(session, base)
 
     success = 'upload successful, please wait ~3 minutes for restart'
@@ -209,7 +213,9 @@ def putconfig(*, session=None, base=None, url=None, infile=None, **kwargs):
 
 
 @commands.register
-def putfirmware(*, session=None, base=None, url=None, infile=None, **kwargs):
+def putfirmware(*, session, base, url, infile=None, **kwargs):
+    '''flash a firmware file'''
+
     s = setcsrf(session, base)
 
     # upload firmware
@@ -225,9 +231,10 @@ def putfirmware(*, session=None, base=None, url=None, infile=None, **kwargs):
     else:
         raise ValueError('failed to flash?')
 
-
 @commands.register
-def gethwid(*, session=None, base=None, url=None, outfile=None, **kwargs):
+def gethwid(*, session, base, url, outfile=None, **kwargs):
+    '''extract device's hardware info to a template config'''
+
     # download config
     vprint('downloading existing config')
     config = io.BytesIO(getconfig(session=session, base=base, url=url, **kwargs))
@@ -269,7 +276,9 @@ def gethwid(*, session=None, base=None, url=None, outfile=None, **kwargs):
 
 
 @commands.register
-def jailbreak(*, session=None, base=None, url=None, dropbear=None, **kwargs):
+def jailbreak(*, session, base, url, dropbear=None, **kwargs):
+    '''enable root login via ssh'''
+
     # download config
     vprint('downloading existing config')
     config = io.BytesIO(getconfig(session=session, base=base, url=url, **kwargs))
