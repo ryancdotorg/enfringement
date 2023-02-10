@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from sys import argv, stdout, stderr, version_info
+from sys import argv, stdin, stdout, stderr, version_info
 from functools import partial
 eprint = partial(print, file=stderr)
 
@@ -13,6 +13,10 @@ import tarfile
 
 from hashlib import md5
 from urllib3.exceptions import InsecureRequestWarning
+
+VERBOSE = False
+def vprint(*args, **kwargs):
+    if VERBOSE: print(*args, file=stderr, **kwargs)
 
 DRYRUN = True if os.environ.get('EAP_DRYRUN', False) else False
 
@@ -118,17 +122,17 @@ def login(*, url=None, username='admin', password='admin', **kwargs):
 
     requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-    eprint('getting login page')
+    vprint('getting login page')
     r = s.get(str(url)+'/cgi-bin/luci')
 
     if b'hex_md5' in r.content:
-        eprint('attempting login with md5 of password')
+        vprint('attempting login with md5 of password')
         payload = {
             'username': username,
             'password': md5(f'{password}\n'.encode()).hexdigest(),
         }
     else:
-        eprint('attempting login with cleartext password')
+        vprint('attempting login with cleartext password')
         payload = {'username': username, 'password': password}
 
     # log in
@@ -136,7 +140,7 @@ def login(*, url=None, username='admin', password='admin', **kwargs):
     # parse out base url
     m = re.match(r'(.+;stok=[0-9a-f]+)/admin/status/overview/\Z', r.url)
     if m is not None:
-        eprint('got csrf token')
+        vprint('got csrf token')
         return s, m.group(1)
     else:
         m = re.search(r'(/cgi-bin/luci/;stok=[0-9a-f]+)', r.content.decode())
@@ -147,7 +151,7 @@ def login(*, url=None, username='admin', password='admin', **kwargs):
 
 def setcsrf(session, base):
     s = session
-    eprint('syncing csrf token')
+    vprint('syncing csrf token')
     r = s.get(f'{base}/admin/system/ajax_setCsrf')
     return s
 
@@ -164,7 +168,7 @@ def getconfig(*, session=None, base=None, url=None, outfile=None, stream=False, 
 
     try:
         filename = r.headers['Content-Disposition'].split('"')[1]
-        eprint(f'received: {filename}')
+        vprint(f'received: {filename}')
     except Exception as e:
         eprint(r.headers, str(r.content[0:16]))
         raise e
@@ -215,7 +219,7 @@ def putfirmware(*, session=None, base=None, url=None, infile=None, **kwargs):
     )
     m = re.search(r'Checksum: <code>([0-9a-f]+)</code>', r.content.decode())
     if m is not None:
-        eprint(m.group(1))
+        vprint(m.group(1))
         r = s.post(f'{base}/admin/system/flashops', data={'step': 2, 'keep': ''})
         if kwargs['wait']: wait(url=url)
     else:
@@ -225,7 +229,7 @@ def putfirmware(*, session=None, base=None, url=None, infile=None, **kwargs):
 @commands.register
 def gethwid(*, session=None, base=None, url=None, outfile=None, **kwargs):
     # download config
-    eprint('downloading existing config')
+    vprint('downloading existing config')
     config = io.BytesIO(getconfig(session=session, base=base, url=url, **kwargs))
 
     ofile = io.StringIO()
@@ -267,7 +271,7 @@ def gethwid(*, session=None, base=None, url=None, outfile=None, **kwargs):
 @commands.register
 def jailbreak(*, session=None, base=None, url=None, dropbear=None, **kwargs):
     # download config
-    eprint('downloading existing config')
+    vprint('downloading existing config')
     config = io.BytesIO(getconfig(session=session, base=base, url=url, **kwargs))
 
     ofile = io.BytesIO()
@@ -283,14 +287,14 @@ def jailbreak(*, session=None, base=None, url=None, dropbear=None, **kwargs):
                     with itar.extractfile(info) as fh:
                         data, n = re.subn(rb'root:[^:]?:', b'root:!:', fh.read())
                         if n or DRYRUN:
-                            eprint(f'patched {info.name} to fix root login vuln')
+                            vprint(f'patched {info.name} to fix root login vuln')
                     patch(info, data)
                 elif info.name == 'etc/config/dropbear':
                     # enable dropbear
                     with itar.extractfile(info) as fh:
                         data, n = re.subn(rb"(option enable ')off", rb"\1on", fh.read())
                         if n or DRYRUN:
-                            eprint(f'patched {info.name} to enable ssh')
+                            vprint(f'patched {info.name} to enable ssh')
                     patch(info, data)
                 elif info.isfile():
                     # add regular file
@@ -316,19 +320,19 @@ def jailbreak(*, session=None, base=None, url=None, dropbear=None, **kwargs):
         otar.addfile(mutate('usr/sbin', type=tarfile.DIRTYPE))
 
         if not dropbear:
-            eprint(f'injecting dropbear binary from {DBTAR}:{DBBIN}')
+            vprint(f'injecting dropbear binary from {DBTAR}:{DBBIN}')
             dbtar = tarfile.open(DBTAR)
             info = dbtar.getmember(DBBIN)
             otar.addfile(info, dbtar.extractfile(info))
         else:
-            eprint(f'injecting dropbear binary from {dropbear}')
+            vprint(f'injecting dropbear binary from {dropbear}')
             otar.add(dropbear, 'usr/sbin/dropbear', None, filter=mutate)
 
     ofile.flush()
     ofile.seek(0)
 
     # upload config
-    eprint('uploading modified config')
+    vprint('uploading modified config')
     return putconfig(session=session, base=base, url=url, infile=ofile, **kwargs)
 
 
@@ -345,8 +349,13 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        'command', metavar='COMMAND', choices=commands.keys(),
-        help='command to perform {%(choices)s}',
+        'command', metavar='COMMAND', choices=command_names,
+        help=command_help,
+    )
+
+    parser.add_argument(
+        '-v', '--verbose', dest='verbose', action='store_true',
+        help='enable verbose output',
     )
 
     parser.add_argument(
@@ -380,6 +389,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.password = os.environ.get('EAP_PASSWORD', args.password)
+    if args.verbose: VERBOSE = True
 
     # don't pass none values
     kwargs = dict(filter(lambda item: item[1] is not None, vars(args).items()))
