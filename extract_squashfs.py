@@ -159,15 +159,15 @@ def search_flash(fobj):
 
         fobj.seek(4, 1)
 
-with buffered_reader(filename) as fbuf:
+with buffered_reader(filename) as fobj:
     blocks = iter(())
 
-    if fbuf.peek(2)[0:2] == b'\x1f\x8b':
+    if fobj.peek(2)[0:2] == b'\x1f\x8b':
         # we have gzip magic, so assume this is a gzip'd tarball...
-        blocks = search_tarball(fbuf)
+        blocks = search_tarball(fobj)
     else:
         # not a tarball, so slightly more annoying...
-        blocks = search_flash(fbuf)
+        blocks = search_flash(fobj)
 
     if next(blocks, None) == b'':
         for block in blocks:
