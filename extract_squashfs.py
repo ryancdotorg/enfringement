@@ -110,16 +110,21 @@ def is_squashfs(ahead, posbits=None, offset=None):
             if not is_power_of_2(block_size): return (None, None, 1, None)
             if compression_id > 6: return (None, None, 2, None)
             if version_major != 4: return (None, None, 3, None)
+            if inode_count < 250: return (None, None, 4, None)
 
             return (endian, forward, koff, bytes_used)
 
-    return (None, None, 4, None)
+    return (None, None, 5, None)
 
 def search_flash(fobj):
     k = KEY + KEY
     # generate lookup table to search for a squashfs superblock
     for magic, endian in ((b'sqsh', '>'), (b'hsqs', '<')):
+        # unencrypted
         ref[magic] = (endian, None)
+        for i, c in enumerate(magic): posmap[c] |= 1 << i
+
+        # encrypted
         for p in range(8):
             # sub = magic xor key (with offset key)
             sub = bytes(map(lambda a: a[0] ^ a[1], zip(magic, k[p:])))
@@ -136,16 +141,14 @@ def search_flash(fobj):
         if posbits != 0:
             # the header might be here, dig deeper
             endian, forward, koff, size = is_squashfs(fobj.peek(51)[:51], posbits)
-            if forward is not None or koff != 4:
+            if forward is not None or koff != 5:
                 eprint('is_squashfs:', endian, forward, koff, size)
 
             if forward is not None:
                 # seek ahead as needed
                 offset = fobj.seek(forward, 1)
-                eprint(
-                    f'found squashfs at offset {offset},',
-                    'checking whether it is inside of an ubi image',
-                )
+                eprint(f'found squashfs at offset {offset}{" (encrypted)" if koff is not None else ""}')
+                eprint('checking whether it is inside of an ubi image...')
 
                 # MUST BE A POWER OF 2, AND AT LEAST 262144 (2^18)
                 buf = bytearray(1<<18)
@@ -165,7 +168,10 @@ def search_flash(fobj):
 
                     if koff is not None:
                         # decrypt the data block
+                        #eprint(f'buf ct[{koff}] ', hexstr(buf[:8]))
                         for i in range(n): buf[i] ^= KEY[(koff+i)&7]
+
+                    #eprint('buf pt    ', hexstr(buf[:8]))
 
                     if ubi is None:
                         ubi = (n, 0)
@@ -196,7 +202,11 @@ def search_flash(fobj):
                                 buf = bytearray(p)
                                 break
 
-                        if not ubi[1]: eprint(f'ubi image not detected')
+                        if not ubi[1]:
+                            eprint(f'ubi image not detected')
+                            block = bytes(buf)
+                            yield block
+                            returned += n
                     elif returned + ubi[0] > size:
                         needed = max(0, size - returned)
                         block = bytes(buf[0:needed])
