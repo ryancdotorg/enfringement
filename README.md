@@ -1,6 +1,25 @@
 # enfringement
 
-Tools for working with EnGenius EnSky series WAPs
+Tools for working with EnGenius WiFi hardware.
+
+## `decrypt.py`
+
+Decrypt a firmware file using EnGenius’s static xor key.
+
+## `extract_squashfs.py`
+
+Attempt to automatically extract a squashfs root filesystem image from a
+firmware file. The file is scanned without decrypting it first, but decryption
+will be done automatically as required.
+
+Supports the following types of firmware images:
+* gzip’d tar file
+* Proprietary EnGenius firmware containing raw SquashFS image
+* Proprietary EnGenius firmware containing SquashFS image inside UBI image
+
+## `enfringement.py`
+
+Manipulate an EnSky-series WAP via its web interface.
 
     usage: enfringement.py COMMAND [options]
 
