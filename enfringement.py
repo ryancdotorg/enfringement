@@ -28,9 +28,20 @@ DRYRUN = True if os.environ.get('EAP_DRYRUN', False) else False
 DBTAR, DBBIN = 'dbmulti-armv7l.tar.xz', 'dbmulti-cli-scp'
 
 HWID = {
-    'EWS355AP':   '0101008A',
-    'EAP1300':    '0101009D',
-    'EAP1300EXT': '0101009E',
+    'EWSAP':            '00000000',     'EWS370AP':         '0101007B',
+    'EWS371AP':         '0101007C',     'EWS870AP':         '0101007D',
+    'EWS871AP':         '0101007E',     'EAP2200':          '01010080',
+    'EMR5000':          '01010080',     'EWS355AP':         '0101008A',
+    'EWS550AP':         '0101008A',     'ESR580':           '0101008d',
+    'EWS330AP':         '01010097',     'EAP1250':          '01010098',
+    'ENS202EXTv2':      '01010099',     'ENS202v2':         '0101009A',
+    'EMD1':             '0101009C',     'EAP1300':          '0101009D',
+    'EAP1300EXT':       '0101009E',     'ENS620EXT':        '010100A4',
+    'ENH1350EXT':       '010100A6',     'EMD2':             '010100A9',
+    'EMD11':            '010100B3',     'ENS500-AC':        '010100B9',
+    'ENS500EXT-AC':     '010100BA',     'EnStation5-AC':    '010100BB',
+    'EAP2250':          '010100BD',     'EWS385AP':         '010100BE',
+    'EnStationACv2':    '01010103',     'ENH500v3':         '01010104',
 }
 
 def getdocstr(fn):
