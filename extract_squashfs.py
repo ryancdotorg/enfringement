@@ -80,6 +80,41 @@ def search_tarball(f):
                     # we're done
                     return
 
+def is_squashfs(ahead, posbits=None, offset=None):
+    posbits = 0b1111 if posbits is None else posbits
+
+    for forward in decpos[posbits]:
+        header = bytearray(ahead[forward:forward+48])
+        magic = bytes(header[:4])
+        # could this be the magic number (encrypted or not)?
+        if magic in ref:
+            # grab endianness and key offset
+            endian, koff = ref[magic]
+
+            #offset = fobj.tell() + forward
+            if offset is not None:
+                eprint('candidate:', endian, koff, magic, offset+forward)
+
+            if koff is not None:
+                # decrypt the candidate header
+                for i in range(len(header)): header[i] ^= KEY[(koff+i)%8]
+
+            # extract some squashfs superblock data to validate
+            fields = unpack(endian+'LLLLLHHHHHHQQ', header)
+            magic, inode_count, modification_time, block_size = fields[0:4]
+            version_major, version_minor, _, bytes_used = fields[9:13]
+            compression_id = fields[5]
+
+            # verify that we have something that looks like a squashfs header
+            if magic != 1936814952: raise TypeError('bad magic (bug?)')
+            if not is_power_of_2(block_size): return (None, None, 1, None)
+            if compression_id > 6: return (None, None, 2, None)
+            if version_major != 4: return (None, None, 3, None)
+
+            return (endian, forward, koff, bytes_used)
+
+    return (None, None, 4, None)
+
 def search_flash(fobj):
     k = KEY + KEY
     # generate lookup table to search for a squashfs superblock
@@ -100,54 +135,81 @@ def search_flash(fobj):
         posbits = posmap[c]
         if posbits != 0:
             # the header might be here, dig deeper
-            ahead = fobj.peek(35)[:35]
-            for forward in decpos[posbits]:
-                header = bytearray(ahead[forward:forward+32])
-                magic = bytes(header[:4])
-                # could this be the magic number (encrypted or not)?
-                if magic in ref:
-                    # grab endianness and key offset
-                    endian, koff = ref[magic]
+            endian, forward, koff, size = is_squashfs(fobj.peek(51)[:51], posbits)
+            if forward is not None or koff != 4:
+                eprint('is_squashfs:', endian, forward, koff, size)
 
-                    #offset = fobj.tell() + forward
-                    #print('candidate:', endian, koff, magic, offset, file=sys.stderr)
+            if forward is not None:
+                # seek ahead as needed
+                offset = fobj.seek(forward, 1)
+                eprint(
+                    f'found squashfs at offset {offset},',
+                    'checking whether it is inside of an ubi image',
+                )
+
+                # MUST BE A POWER OF 2, AND AT LEAST 262144 (2^18)
+                buf = bytearray(1<<18)
+
+                # generate output
+                yield b''
+                ubi, returned = None, 0
+                while True:
+                    if returned >= size: return
+                    n = fobj.readinto(buf)
+                    if n == 0: return
+
+                    while n < len(buf):
+                        _n = fobj.readinto(buf[n:])
+                        if _n == 0: break
+                        n += _n
+
                     if koff is not None:
-                        # decrypt the candidate header
-                        for i in range(len(header)): header[i] ^= KEY[(koff+i)%8]
+                        # decrypt the data block
+                        for i in range(n): buf[i] ^= KEY[(koff+i)&7]
 
-                    # extract some squashfs superblock data to validate
-                    fields = unpack(endian+'LLLLLHHHHHH', header)
-                    magic, inode_count, modification_time, block_size = fields[0:4]
-                    version_major, version_minor = fields[9:11]
-                    compression_id = fields[5]
+                    if ubi is None:
+                        ubi = (n, 0)
+                        # look for ubi erase block headers that we need to skip
+                        skip, seek = 8192, 1024
+                        for p in range(0, n, seek):
+                            if buf[p:p+3] == b'UBI':
+                                while True:
+                                    sample = buf[p+skip-8:p+skip]
+                                    if sample == b'\xff\xff\xff\xff\xff\xff\xff\xff':
+                                        break
+                                    elif skip <= seek:
+                                        raise ValueError('Failed to determine UBI parameters!')
+                                    else:
+                                        skip //= 2
 
-                    # verify that we have something that looks like a squashfs header
-                    if magic != 1936814952:
-                        raise TypeError('bad magic (bug?)')
-                    if not is_power_of_2(block_size): next
-                    if compression_id > 6: next
-                    if version_major != 4: next
+                                if not is_power_of_2(p+skip):
+                                    eprint(p, skip)
+                                    raise ValueError('Failed to determine UBI parameters!')
 
-                    # seek ahead as needed
-                    offset = fobj.seek(forward, 1)
-                    eprint(f'found squashfs at offset {offset}')
+                                ubi = (p, skip)
+                                eprint(f'found ubi parameters: (data={ubi[0]}, skip={ubi[1]})')
+                                for data_offset in range(0, n, p+skip):
+                                    block = bytes(buf[data_offset:data_offset+p])
+                                    yield block
+                                    returned += ubi[0]
 
-                    buf = bytearray(65536)
+                                buf = bytearray(p)
+                                break
 
-                    # generate output
-                    yield b''
-                    while True:
-                        n = fobj.readinto(buf)
-                        if n == 0: break
-                        if koff is not None:
-                            # decrypt the data block
-                            for i in range(n): buf[i] ^= KEY[(koff+i)%8]
-                        yield bytes(buf[0:n])
-                        offset += n
+                        if not ubi[1]: eprint(f'ubi image not detected')
+                    elif returned + ubi[0] > size:
+                        needed = max(0, size - returned)
+                        block = bytes(buf[0:needed])
+                        yield block
+                        returned += needed
+                    else:
+                        block = bytes(buf[0:n])
+                        yield block
+                        returned += ubi[0]
+                        # skip over the erase block data if present
+                        if ubi[1]: erase_block = fobj.read(ubi[1])
 
-                    # we're done
-                    return
-
+        # advance to the next position to test
         fobj.seek(4, 1)
 
 with buffered_reader(filename) as fobj:
