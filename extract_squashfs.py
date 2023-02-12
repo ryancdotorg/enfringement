@@ -4,13 +4,15 @@ import io
 import re
 import sys
 
-from struct import unpack
+from functools import partial
+eprint = partial(print, file=sys.stderr)
 
 httpio = None
 import httpio
 #try:
 #except:
 #    pass
+from struct import unpack
 
 KEY = b'\xac\x78\x3c\x9e\xcf\x67\xb3\x59'
 posmap = [0] * 256
@@ -35,6 +37,13 @@ decpos = (
 ref = {}
 
 filename = sys.argv[1]
+
+def hexstr(value):
+    global hexstr
+    from binascii import hexlify
+    result = hexlify(value).decode()
+    hexstr = lambda x: hexlify(x).decode()
+    return result
 
 def is_power_of_2(n):
     return n != 0 and (n & (n-1) == 0)
@@ -71,7 +80,7 @@ def search_tarball(f):
             with tar.extractfile(member) as f:
                 magic = f.peek(4)[0:4]
                 if magic in (b'sqsh', b'hsqs'):
-                    print(f'found squashfs in tarball as `{member.name}`', file=sys.stderr)
+                    eprint(f'found squashfs in tarball as `{member.name}`')
                     # generate output
                     yield b''
                     for block in iter(lambda: f.read(4096), b''):
@@ -130,7 +139,7 @@ def search_flash(fobj):
 
                     # seek ahead as needed
                     offset = fobj.seek(forward, 1)
-                    print(f'found squashfs at offset {offset}', file=sys.stderr)
+                    eprint(f'found squashfs at offset {offset}')
 
                     buf = bytearray(65536)
 
@@ -164,4 +173,4 @@ with buffered_reader(filename) as fbuf:
         for block in blocks:
             sys.stdout.buffer.write(block)
     else:
-        print(f'could not find squashfs in `{filename}`', file=sys.stderr)
+        eprint(f'could not find squashfs in `{filename}`')
