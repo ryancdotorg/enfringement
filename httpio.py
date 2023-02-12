@@ -21,14 +21,15 @@ class HttpError(IOError):
             self.message = message
         super().__init__(self.message)
 
-class HttpIO(io.IOBase):
-    def __init__(self, url, session=None):
+class HttpIO(io.RawIOBase):
+    def __init__(self, url, session=None, *, max_read=None):
         if session is None: session = requests.Session()
         self.session = session
         self._url = url
         self._pos = 0
         self._debug = 0
         self._open = True
+        self._max_read = max_read
         self._seekable = True
         r = self._head()
         if 'bytes' not in r.headers.get('Accept-Ranges'):
@@ -37,21 +38,48 @@ class HttpIO(io.IOBase):
         self._len = int(r.headers.get('Content-Length'))
 
     def _head(self):
+        debug('_head')
         r = self.session.head(self._url)
         if r.status_code != 200: raise HttpError(r)
         return r
 
     def _get(self, headers=None):
+        debug('_get')
         r = self.session.get(self._url, headers=headers)
         if r.status_code not in (200, 206): raise HttpError(r)
         return r
 
+    def readall(self):
+        debug(f'readall()')
+        result = b''
+        while True:
+            block = self._read1()
+            if not block: return result
+            result += block
+
     def read(self, size=-1):
-        debug('read')
-        return self.read1(size)
+        if size < 0: return self.readall()
+
+        debug(f'read({size})')
+
+        result = b''
+        if size == 0: return result
+
+        while len(result) < size:
+            block = self._read1(size-len(result))
+            if not block: return result
+            result += block
+
+        return result
 
     def read1(self, size=-1):
-        debug(f'read1({size})')
+        return self._read1(size)
+
+    def _read1(self, size):
+        debug(f'_read1({size})')
+        if self._max_read and size > self._max_read:
+            size = max_read
+
         headers = {}
         end = -1
         if size == 0:
@@ -68,22 +96,25 @@ class HttpIO(io.IOBase):
 
         r = self._get(headers)
         n = int(r.headers.get('Content-Length'))
-        debug(f'read1({size}) -> @{self._pos}+{n}')
+        debug(f'_read1({size}) -> @{self._pos}+{n}')
         self._pos += n
-        #debug('->', len(r.content), r.content)
         return r.content
 
     def readinto(self, buf):
-        debug('readinto')
-        return self.readinto1(buf)
+        return self._readinto(buf, False)
 
     def readinto1(self, buf):
-        debug('readinto1')
+        return self._readinto(buf, True)
+
+    def _readinto(self, buf, one):
+        debug(f'_readinto({str(buf)}, {one})')
         if not isinstance(buf, memoryview):
             buf = memoryview(buf)
 
         buf = buf.cast('B')
-        data = self.read(len(buf))
+
+        n = len(buf)
+        data = self._read1(n) if one else self.read(n)
         n = len(data)
         buf[:n] = data
         return n
