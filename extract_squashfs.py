@@ -7,11 +7,6 @@ import sys
 from functools import partial
 eprint = partial(print, file=sys.stderr)
 
-httpio = None
-import httpio
-#try:
-#except:
-#    pass
 from struct import unpack
 
 KEY = b'\xac\x78\x3c\x9e\xcf\x67\xb3\x59'
@@ -60,12 +55,19 @@ def buffered_reader(x, buffer_size=io.DEFAULT_BUFFER_SIZE):
     elif isinstance(x, (bytes, bytearray)):
         return io.BufferedReader(io.BytesIO(x), buffer_size)
     elif isinstance(x, str):
-        if httpio is not None:
-            m = re.search(r'https?://', x)
-            if m is not None:
-                x = httpio.HttpIO(x)
-                x = io.BufferedReader(x, max(buffer_size, 1<<18))
-                return x
+        m = re.search(r'https?://', x)
+        if m is not None:
+            try:
+                from httpio import HttpIO
+            except Exception as e:
+                eprint('HttpIO unavailable:\n')
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+
+            x = HttpIO(x)
+            x = io.BufferedReader(x, max(buffer_size, 1<<18))
+            return x
 
         return open(x, 'rb', buffer_size)
     else:
