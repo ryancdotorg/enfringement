@@ -223,20 +223,24 @@ def getmac(*, session, base, url, outfile=None, **kwargs):
     pattern  = rb'<div\s+[^>]*\bclass="PIE"[^>]+>\s*'
     pattern += rb'<div[^>]*>\s*([^<]+)\s*</div>\s*'
     pattern += rb'<div[^>]*>\s*([^<]+)\s*</div>\s*'
+    pattern += rb'.+<td\s+[^>]*\bmyid="Device_Serial_Number_text"[^>]*>([0-9A-F]+)</td>'
     pattern += rb'.+<td\s+[^>]*\bid="mac_lan"[^>]*>([0-9A-F:]+)</td>'
     m = re.search(pattern, html, flags=re.MULTILINE|re.DOTALL)
     if m is not None:
         info = tuple(map(bytes.decode, m.groups()))
         model = info[0]
         desc = info[1]
-        mac = info[2]
+        serial = info[2]
+        mac = info[3]
 
         ofile = io.StringIO()
         ofile.write("# DON'T TOUCH THESE!\n")
+        # add hwid if the model is recognized
         if model in HWID:
             ofile.write(f"hwid = {HWID[model]}\n")
         ofile.write(f"modelname = {model}\n")
         ofile.write(f"macaddr = {mac}\n")
+        ofile.write(f"serial = {serial}\n")
         m = re.search(rb'\s*var\s+firmwareVersion\s*=\s*["\']([0-9.]+)["\']', html)
         if m is not None:
             ofile.write(f"fwver = {m.group(1).decode()}\n")
@@ -249,7 +253,9 @@ def getmac(*, session, base, url, outfile=None, **kwargs):
         else:
             print(ofile.getvalue())
 
-    return True
+        return True
+    else:
+        return False
 
 @commands.register
 def getconfig(*, session, base, url, outfile=None, stream=False, **kwargs):
