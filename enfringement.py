@@ -411,13 +411,59 @@ def jailbreak(*, session, base, url, dropbear=None, **kwargs):
                     otar.addfile(info)
 
         if not dropbear:
+            # load from bundled tarball
             vprint(f'injecting dropbear binary from {DBTAR}:{DBBIN}')
             dbtar = tarfile.open(DBTAR)
-            info = dbtar.getmember(DBBIN)
-            otar.addfile(info, dbtar.extractfile(info))
+            dbinfo = mutate(dbtar.getmember(DBBIN))
+            dbbin = dbtar.extractfile(dbinfo)
         else:
+            # load from file
             vprint(f'injecting dropbear binary from {dropbear}')
-            otar.add(dropbear, 'usr/sbin/dropbear', None, filter=mutate)
+            dbinfo = mutate(otar.gettarinfo(dropbear))
+            with open(dropbear, 'rb') as f:
+                dbbin = io.BytesIO(f.read())
+
+        # add entries for parent directories
+        otar.addfile(mutate('usr', type=tarfile.DIRTYPE, mtime=dbinfo.mtime))
+        otar.addfile(mutate('usr/sbin', type=tarfile.DIRTYPE, mtime=dbinfo.mtime))
+
+        # add the dropbear binary itself
+        dbinfo.name = 'usr/sbin/dropbear'
+        otar.addfile(dbinfo, dbbin)
+
+        # load the binary as a byte string
+        dbbin.seek(0)
+        dbdata = dbbin.read()
+        dbbin.close()
+
+        # figure out which binary names are supported
+        multi_start = dbdata.find(b'dropbearmulti <command>')
+        if multi_start >= 0:
+            multi_end = dbdata.find(b'\0', multi_start)
+            if multi_end >= 0:
+                s = dbdata[multi_start:multi_end].decode()
+                names = re.findall(r"'(\w+)'\s+", s, re.MULTILINE)
+
+                # add 'whiteout' files for unsupported binary names
+                for link in ('scp', 'ssh', 'dbclient', 'dropbearkey'):
+                    if link not in names:
+                        info = mutate(
+                            f'usr/bin/{link}',
+                            type=tarfile.CHRTYPE,
+                            devmajor=0, devminor=0,
+                            mtime = dbinfo.mtime,
+                        )
+                        otar.addfile(info)
+
+                # add symlinks for each supported binary
+                for name in names:
+                    if name != 'dropbear':
+                        info = mutate(
+                            f'usr/bin/{name}',
+                            linkname='../sbin/dropbear',
+                            mtime = dbinfo.mtime,
+                        )
+                        otar.addfile(info)
 
     ofile.flush()
     ofile.seek(0)
