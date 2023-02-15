@@ -14,6 +14,10 @@ import tarfile
 from hashlib import md5
 from urllib3.exceptions import InsecureRequestWarning
 
+pyver = 'Python/{0.major}.{0.minor}.{0.micro}'.format(version_info)
+rqver = f'requests/{requests.__version__}'
+uastr = f'Mozilla/5.0 (compatible; {pyver}; {rqver})'
+
 VERBOSE = False
 def vprint(*args, **kwargs):
     if VERBOSE: print(*args, file=stderr, **kwargs)
@@ -27,6 +31,7 @@ DRYRUN = True if os.environ.get('EAP_DRYRUN', False) else False
 # simply print an error message an return 0 when called
 DBTAR, DBBIN = 'dbmulti-armv7l.tar.xz', 'dbmulti-cli-scp'
 
+# mappings from firmware dumps
 HWID = {
     'EWSAP':            '00000000',     'EWS370AP':         '0101007B',
     'EWS371AP':         '0101007C',     'EWS870AP':         '0101007D',
@@ -43,10 +48,6 @@ HWID = {
     'EAP2250':          '010100BD',     'EWS385AP':         '010100BE',
     'EnStationACv2':    '01010103',     'ENH500v3':         '01010104',
 }
-
-def getdocstr(fn):
-    import inspect
-    return inspect.getdoc(fn)
 
 class Registrar(dict):
     def register(self, *args, **kwargs):
@@ -69,12 +70,11 @@ class Registrar(dict):
     def dispatch(self, name, *args, **kwargs):
         return (self[name])(*args, **kwargs)
 
-
 commands = Registrar()
-pyver = 'Python/{0.major}.{0.minor}.{0.micro}'.format(version_info)
-rqver = f'requests/{requests.__version__}'
-uastr = f'Mozilla/5.0 (compatible; {pyver}; {rqver})'
 
+def getdocstr(fn):
+    import inspect
+    return inspect.getdoc(fn)
 
 def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
     import time, socket, selectors
@@ -115,7 +115,6 @@ def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
         finally: sock.close()
 
     return (elapsed(), caddr)
-
 
 def wait(*, url, **kwargs):
     ping = lambda: tcp_ping(url.host, url.port if url.port is not None else url.scheme)
@@ -169,13 +168,11 @@ def login(*, url, username='admin', password='admin', **kwargs):
             return s, str(url) + m.group(1)
     raise ValueError('failed to log in?')
 
-
 def setcsrf(session, base):
     s = session
     vprint('syncing csrf token')
     r = s.get(f'{base}/admin/system/ajax_setCsrf')
     return s
-
 
 @commands.register
 def getstatus(*, session, base, url, outfile=None, **kwargs):
@@ -260,7 +257,6 @@ def getconfig(*, session, base, url, outfile=None, stream=False, **kwargs):
     else:
         return r.content
 
-
 @commands.register
 def putconfig(*, session, base, url, infile=None, **kwargs):
     '''upload a config bundle'''
@@ -287,7 +283,6 @@ def putconfig(*, session, base, url, infile=None, **kwargs):
         return True
 
     return False
-
 
 @commands.register
 def putfirmware(*, session, base, url, infile=None, **kwargs):
@@ -350,7 +345,6 @@ def gethwid(*, session, base, url, outfile=None, **kwargs):
         print(ofile.getvalue())
 
     return True
-
 
 @commands.register
 def jailbreak(*, session, base, url, dropbear=None, **kwargs):
@@ -420,7 +414,6 @@ def jailbreak(*, session, base, url, dropbear=None, **kwargs):
     # upload config
     vprint('uploading modified config')
     return putconfig(session=session, base=base, url=url, infile=ofile, **kwargs)
-
 
 if __name__ == '__main__':
     from urllib3.util import parse_url
