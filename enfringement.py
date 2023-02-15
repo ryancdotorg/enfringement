@@ -485,6 +485,11 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-n', '--dryrun', dest='dryrun', action='store_true',
+        help='perform a trial run with no changes made',
+    )
+
+    parser.add_argument(
         '-u', '--username', dest='username', metavar='USER', default='admin',
         help='login username (default: "admin")',
     )
@@ -518,6 +523,7 @@ if __name__ == '__main__':
     if args.password is None:
         args.password = os.environ.get('EAP_PASSWORD', 'admin')
     if args.verbose: VERBOSE = True
+    if args.dryrun: DRYRUN = True
 
     # don't pass none values
     kwargs = dict(filter(lambda item: item[1] is not None, vars(args).items()))
