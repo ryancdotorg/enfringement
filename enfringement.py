@@ -76,6 +76,27 @@ def getdocstr(fn):
     import inspect
     return inspect.getdoc(fn)
 
+def mutate(info, **kwargs):
+    if isinstance(info, str):
+        info = tarfile.TarInfo(info)
+        if 'type' in kwargs:
+            info.type = kwargs['type']
+        elif 'linkname' in kwargs:
+            info.type = tarfile.SYMTYPE
+
+    info.uid = info.gid = 0
+    info.uname = info.gname = 'root'
+    if info.issym():
+        info.mode = 0o777
+    else:
+        info.mode &= 0o755
+        info.mode |= 0o111 if info.isdir() else 0
+
+    for k, v in kwargs.items():
+        setattr(info, k, v)
+
+    return info
+
 def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
     import time, socket, selectors
     caddr, ip4, ip6 = None, [], []
@@ -382,22 +403,6 @@ def jailbreak(*, session, base, url, dropbear=None, **kwargs):
                 else:
                     # add special file
                     otar.addfile(info)
-
-        def mutate(info, **kwargs):
-            if isinstance(info, str):
-                info = tarfile.TarInfo(info)
-
-            info.uid = info.gid = 0
-            info.uname = info.gname = 'root'
-            info.mode = 0o755
-
-            for k, v in kwargs.items():
-                setattr(info, k, v)
-
-            return info
-
-        otar.addfile(mutate('usr', type=tarfile.DIRTYPE))
-        otar.addfile(mutate('usr/sbin', type=tarfile.DIRTYPE))
 
         if not dropbear:
             vprint(f'injecting dropbear binary from {DBTAR}:{DBBIN}')
