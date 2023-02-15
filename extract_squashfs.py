@@ -20,8 +20,6 @@ decpos = (
 )
 ref = {}
 
-filename = sys.argv[1]
-
 def hexstr(value):
     global hexstr
     from binascii import hexlify
@@ -222,6 +220,7 @@ def search_flash(fobj):
         # advance to the next position to test
         fobj.seek(4, 1)
 
+filename = sys.argv[1]
 with buffered_reader(filename) as fobj:
     blocks = iter(())
 
