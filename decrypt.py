@@ -21,7 +21,6 @@ with open(filename, 'rb') as f:
     end = len(s)
 
     decrypt = decrypter(s.find(key))
-    sys.stdout.buffer.write(bytes(s[0:d]))
 
     while d < end:
         stop = min(d + 4096, end)
