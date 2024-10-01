@@ -100,7 +100,18 @@ def mutate(info, **kwargs):
 def tcp_ping(host, port, timeout=3.0, *, ip6_advantage=0.2):
     import time, socket, selectors
     caddr, ip4, ip6 = None, [], []
-    entries = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+
+    while True:
+        try:
+            entries = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+            break
+        except socket.gaierror as e:
+            if e.errno == -3:
+                time.sleep(5)
+                continue
+
+            eprint(e, e.errno, dir(e))
+            raise e
 
     with selectors.DefaultSelector() as sel:
         # create socket for each address
@@ -317,6 +328,13 @@ def putfirmware(*, session, base, url, infile=None, **kwargs):
 
     s = setcsrf(session, base)
 
+    success = 'upload successful, please wait several minutes for flash and restart'
+
+    if DRYRUN:
+        time.sleep(1)
+        eprint(success)
+        return True
+
     # upload firmware
     r = s.post(
         f'{base}/admin/system/flashops',
@@ -326,7 +344,9 @@ def putfirmware(*, session, base, url, infile=None, **kwargs):
     if m is not None:
         vprint(m.group(1))
         r = s.post(f'{base}/admin/system/flashops', data={'step': 2, 'keep': ''})
+        eprint(success)
         if kwargs['wait']: wait(url=url)
+        return True
     else:
         raise ValueError('failed to flash?')
 

@@ -27,19 +27,26 @@ class HttpIO(io.RawIOBase):
         self.session = session
         self._url = url
         self._pos = 0
-        self._debug = 0
-        self._open = True
+        self._closed = False
         self._max_read = max_read
         self._seekable = True
+
         r = self._head()
         if 'bytes' not in r.headers.get('Accept-Ranges'):
             self._seekable = False
             raise HttpError(r, 'byte ranges not supported by server')
+
         self._len = int(r.headers.get('Content-Length'))
+        self._mtime = r.headers.get('Last-Modified', None)
+        self._etag = r.headers.get('ETag', None)
+
+    @classmethod
+    def open(cls, *args, **kwargs):
+        return cls(*args, **kwargs)
 
     def _head(self):
         debug('_head')
-        r = self.session.head(self._url)
+        r = self.session.head(self._url, allow_redirects=True)
         if r.status_code != 200: raise HttpError(r)
         return r
 
@@ -47,7 +54,19 @@ class HttpIO(io.RawIOBase):
         debug('_get')
         r = self.session.get(self._url, headers=headers)
         if r.status_code not in (200, 206): raise HttpError(r)
+        self._validate(r)
         return r
+
+    def _validate(self, r):
+        mtime = r.headers.get('Last-Modified', None)
+        etag = r.headers.get('Etag', None)
+
+        if mtime is not None and mtime != self._mtime:
+            raise HttpError(r, f'Resource changed! (`Last-Modified` is now `{mtime}`)')
+
+        if etag is not None and etag != self._etag:
+            raise HttpError(r, f'Resource changed! (`ETag` is now `{etag}`)')
+
 
     def readall(self):
         debug(f'readall()')
@@ -151,11 +170,7 @@ class HttpIO(io.RawIOBase):
 
     def close(self):
         self.session.close()
-        self._open = False
-
-    @property
-    def closed(self):
-        return not self._open
+        self._closed = True
 
     def __getattr__(self, name):
         debug('__getattr__('+name+')')
@@ -165,3 +180,4 @@ class HttpIO(io.RawIOBase):
         raise AttributeError(f'object has no attribute `{name}`')
 
     url = property(operator.attrgetter('_url'))
+    closed = property(operator.attrgetter('_closed'))
